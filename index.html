@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IEICE KEN Timetable Renderer</title>
+<style>
+  :root {
+    --bg:#f8fafc; --panel:#ffffff; --line:#d1d5db; --muted:#64748b; --text:#111827;
+    --blue:#1d4ed8; --bluebg:#eff6ff; --soft:#f1f5f9; --danger:#b91c1c;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--text); background:var(--bg); }
+  header, main { max-width:1280px; margin:0 auto; padding:0 24px; }
+  header { padding-top:24px; padding-bottom:8px; }
+  h1 { margin:0 0 8px; font-size:26px; line-height:1.25; }
+  p { line-height:1.65; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; margin:16px 0; }
+  label { display:block; font-weight:700; font-size:13px; margin-bottom:6px; }
+  input[type="url"] { width:100%; border:1px solid #cbd5e1; border-radius:10px; padding:12px; font:14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#fff; }
+  textarea { width:100%; min-height:260px; border:1px solid #cbd5e1; border-radius:10px; padding:12px; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#fff; resize:vertical; }
+  button { border:1px solid #9ca3af; background:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; font:inherit; white-space:nowrap; }
+  button.primary { background:#111827; color:#fff; border-color:#111827; }
+  button:hover { filter:brightness(.97); }
+  .buttons { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .hint { color:var(--muted); font-size:13px; margin:8px 0 0; }
+  .status { white-space:pre-wrap; font-size:13px; color:#334155; }
+  .error { color:var(--danger); }
+  .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px; margin:14px 0; }
+  .summary-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:10px 12px; font-size:13px; }
+  .summary-card strong { display:block; font-size:22px; margin-top:2px; }
+  .tabs { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
+  .tab { border:1px solid #9ca3af; border-radius:999px; background:#fff; padding:7px 14px; cursor:pointer; font-size:13px; }
+  .tab[aria-selected="true"] { background:#111827; color:#fff; border-color:#111827; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 12px; }
+  .day { display:none; }
+  .day.active { display:block; }
+  .scroll { overflow-x:auto; background:#fff; border:1px solid var(--line); border-radius:12px; }
+  .grid { position:relative; display:grid; min-width:980px; background-image:linear-gradient(to bottom, rgba(17,24,39,.08) 1px, transparent 1px); background-size:100% 48px; }
+  .time-head, .room-head { position:sticky; top:0; z-index:20; background:#eef2f7; border-bottom:1px solid #cbd5e1; font-weight:700; font-size:13px; padding:9px 8px; text-align:center; }
+  .time-head { left:0; z-index:21; border-right:1px solid #cbd5e1; }
+  .room-sub { display:block; font-size:11px; font-weight:400; color:var(--muted); margin-top:2px; }
+  .time-label { position:sticky; left:0; z-index:5; background:#fff; border-right:1px solid #e5e7eb; border-bottom:1px solid #f1f5f9; color:var(--muted); font-size:12px; padding:5px 6px; text-align:right; }
+  .bg-cell { border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; min-height:48px; }
+  .session { margin:4px; border:1px solid #93c5fd; background:var(--bluebg); border-radius:10px; padding:9px; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,.08); font-size:12px; line-height:1.4; cursor:pointer; position:relative; }
+  .session:hover, .session.open { z-index:50; overflow:visible; box-shadow:0 8px 20px rgba(15,23,42,.16); }
+  .session:hover { filter:brightness(.985); }
+  .session-time { font-weight:800; color:var(--blue); margin-bottom:4px; }
+  .session-title { font-weight:800; font-size:13px; margin-bottom:4px; }
+  .chair { color:#475569; margin-bottom:6px; }
+  .session-hint { margin-top:6px; font-size:11px; color:var(--muted); }
+  .talks { display:none; margin-top:8px; padding-top:8px; border-top:1px solid rgba(30,64,175,.18); background:rgba(239,246,255,.98); border-radius:8px; }
+  .session:hover .talks, .session.open .talks { display:block; }
+  .talk { background:rgba(255,255,255,.86); border:1px solid rgba(147,197,253,.7); border-radius:8px; padding:6px 7px; margin-top:6px; }
+  .talk-time { font-weight:700; color:#334155; }
+  .talk-type { display:inline-block; font-size:10px; color:#1e40af; border:1px solid #bfdbfe; background:#dbeafe; border-radius:999px; padding:0 5px; margin:0 4px; }
+  .talk a, .talk-link { color:#1d4ed8; text-decoration:none; }
+  .talk a:hover, .talk-link:hover { text-decoration:underline; }
+  .break { margin:4px; border:1px dashed #cbd5e1; background:#f8fafc; border-radius:8px; padding:6px 8px; color:var(--muted); font-size:12px; text-align:center; }
+
+  .paper-list { margin-top:22px; border-top:1px solid #e5e7eb; padding-top:18px; }
+  .paper-list h2 { margin:0 0 8px; font-size:21px; }
+  .paper-list .paper-meta { color:var(--muted); font-size:13px; margin:0 0 14px; }
+  .paper-date { margin-top:18px; }
+  .paper-date h3 { margin:0 0 10px; font-size:17px; border-left:5px solid #111827; padding-left:10px; }
+  .paper-session { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:12px; margin:12px 0; scroll-margin-top:18px; }
+  .paper-session.flash { outline:3px solid #93c5fd; box-shadow:0 0 0 6px rgba(147,197,253,.25); }
+  .paper-session-head { display:flex; gap:10px; flex-wrap:wrap; align-items:baseline; margin-bottom:8px; }
+  .paper-session-title { font-size:16px; font-weight:800; }
+  .paper-session-time { color:var(--blue); font-weight:800; }
+  .paper-session-room { display:inline-block; border:1px solid #cbd5e1; border-radius:999px; padding:2px 8px; font-size:12px; color:#334155; background:#f8fafc; }
+  .paper-session-chair { color:#475569; font-size:13px; margin-bottom:8px; }
+  .paper-items { display:grid; gap:8px; margin-top:8px; }
+  .paper-item { display:grid; grid-template-columns:118px 1fr; gap:10px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:9px 10px; color:inherit; text-decoration:none; }
+  a.paper-item:hover { border-color:#93c5fd; background:#eff6ff; box-shadow:0 1px 3px rgba(15,23,42,.10); }
+  a.paper-item .paper-title { color:#1d4ed8; }
+  .paper-link-note { display:inline-block; margin-left:6px; font-size:11px; color:#1d4ed8; font-weight:600; }
+  .paper-no-link { color:#64748b; font-size:11px; margin-top:3px; }
+  .paper-time { font-weight:800; color:#334155; }
+  .paper-type { display:inline-block; font-size:10px; color:#1e40af; border:1px solid #bfdbfe; background:#dbeafe; border-radius:999px; padding:0 5px; margin-left:4px; }
+  .paper-title { font-weight:600; line-height:1.55; }
+  .paper-back { display:inline-block; margin-top:8px; font-size:12px; color:#1d4ed8; text-decoration:none; }
+  .paper-back:hover { text-decoration:underline; }
+  @media (max-width: 720px) { .paper-item { grid-template-columns:1fr; } }
+
+  .raw-debug { margin-top:12px; font-size:12px; color:#475569; }
+  details { margin-top:10px; }
+  summary { cursor:pointer; color:#334155; }
+  @media print {
+    header, .panel.input-panel, .toolbar { display:none !important; }
+    body { background:#fff; }
+    main { max-width:none; padding:0; }
+    .panel { border:none; }
+    .scroll { overflow:visible; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>IEICE KEN Timetable Renderer</h1>
+  <p class="hint">IEICE KEN のプログラムURLを入力するか、HTML / HTML(simple) / TEXT を貼り付けると、日付 × 部屋 × 時刻のタイムテーブルと、セッション別の論文リストに変換します。HTMLからは各論文の IEICE KEN 論文ページ（/ken/paper/...）へのリンクを優先して抽出します。</p>
+</header>
+<main>
+  <section class="panel input-panel">
+    <label for="programUrl">IEICE KEN プログラムURL</label>
+    <input id="programUrl" type="url" placeholder="https://ken.ieice.org/ken/program/index.php?tgs_regid=..." />
+    <div class="buttons">
+      <button class="primary" id="fetchBtn" type="button">URLから取得してレンダリング</button>
+    </div>
+    <p class="hint">取得APIは <code>/api/fetch-ieice</code> を使います。対象は <code>ken.ieice.org/ken/program/...</code> の公開ページに制限しています。ログイン必須ページやアクセス制限付きページは取得できません。</p>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;" />
+    <label for="source">または HTML / TEXT を貼り付け</label>
+    <textarea id="source" placeholder="IEICE KEN ページの HTML(simple) または TEXT、またはブラウザで選択コピーした本文を貼り付けてください。"></textarea>
+    <div class="buttons">
+      <button id="renderBtn" type="button">貼り付け内容をレンダリング</button>
+      <button id="clearBtn" type="button">クリア</button>
+      <button id="sampleBtn" type="button">入力例を入れる</button>
+    </div>
+    <p class="hint">論文ページへのリンクも使いたい場合は、URL取得または <strong>[HTML(simple)]</strong> の貼り付けを使ってください。TEXT貼り付けでもタイムテーブル化はできますが、通常はリンク情報が含まれません。</p>
+  </section>
+  <section class="panel">
+    <div id="status" class="status">未レンダリングです。</div>
+    <div id="output"></div>
+  </section>
+</main>
+<script>
+(() => {
+  "use strict";
+
+  const CONFIG = {
+    slotMinutes: 15,
+    rowHeightPx: 24,
+    sessionHeaderKeywords: ["座長"],
+    breakKeywords: ["休憩", "昼休憩"],
+    discussionKeywords: ["質疑応答"],
+    datePattern: /(\d{1,2})月\s*(\d{1,2})日\s*[（(]([^)）]+)[)）]/,
+    timeRangePattern: /(\d{1,2}:\d{2})\s*[-－–—〜～]\s*(\d{1,2}:\d{2})/,
+    roomHints: [/[A-Z]\d{1,4}[A-Z]?/i, /第?\d+会場/, /会場/, /講義室/, /会議室/, /教室/, /研修室/, /ホール/, /棟/, /Room/i, /Hall/i],
+    affiliationHints: [/大学/, /大$/, /高専/, /研究所/, /株式会社/, /NHK/, /NTT/, /NEC/, /KDDI/, /東大/, /北大/, /早大/, /名大/, /阪大/, /九大/, /京大/],
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const sourceEl = $("source");
+  const programUrlEl = $("programUrl");
+  const statusEl = $("status");
+  const outputEl = $("output");
+
+  const normalize = (s) => String(s || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[－–—〜～]/g, "-")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const normalizeOneLine = (s) => normalize(s).replace(/\s+/g, " ").trim();
+  const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const escapeRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const textOf = (el) => normalizeOneLine(el?.innerText || el?.textContent || "");
+
+  const timeToMin = (hhmm) => {
+    const [h, m] = hhmm.split(":").map(Number);
+    return h * 60 + m;
+  };
+  const minToTime = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")}`;
+
+  const parseDate = (text) => {
+    const m = normalizeOneLine(text).match(CONFIG.datePattern);
+    if (!m) return null;
+    return { raw:m[0], label:`${m[1]}月${m[2]}日(${m[3]})`, month:+m[1], day:+m[2], weekday:m[3] };
+  };
+
+  const parseTimeRange = (text) => {
+    const m = normalizeOneLine(text).match(CONFIG.timeRangePattern);
+    if (!m) return null;
+    return { raw:m[0], start:m[1], end:m[2], startMin:timeToMin(m[1]), endMin:timeToMin(m[2]) };
+  };
+
+  const includesAny = (text, words) => words.some((w) => text.includes(w));
+
+  const looksLikeRoom = (s) => {
+    const t = normalizeOneLine(s);
+    if (!t) return false;
+    if (CONFIG.roomHints.some((re) => re.test(t))) return true;
+    if (/^[A-Z]?\d{1,4}[A-Z]?$/.test(t)) return true;
+    return false;
+  };
+
+  const looksLikeAffiliationOnly = (s) => {
+    const t = normalizeOneLine(s);
+    const hasAff = CONFIG.affiliationHints.some((re) => re.test(t));
+    const hasRoom = CONFIG.roomHints.some((re) => re.test(t));
+    return hasAff && !hasRoom;
+  };
+
+  const extractParentheses = (text) => [...normalizeOneLine(text).matchAll(/[（(]([^()（）]+)[)）]/g)].map((m) => normalizeOneLine(m[1]));
+
+  const extractRoomFromText = (text) => {
+    const candidates = extractParentheses(text);
+    for (const c of candidates.slice().reverse()) if (looksLikeRoom(c)) return c;
+    for (const c of candidates.slice().reverse()) if (!looksLikeAffiliationOnly(c) && c.length <= 50) return c;
+    return null;
+  };
+
+  const shortRoomName = (room) => {
+    const r = normalizeOneLine(room);
+    const code = r.match(/\b([A-Z]\d{1,4}[A-Z]?)\b/i);
+    if (code) return code[1].toUpperCase();
+    const venue = r.match(/第?\d+会場/);
+    if (venue) return venue[0];
+    return r || "会場未指定";
+  };
+
+  const extractGlobalVenueFromText = (plainText) => {
+    const t = normalize(plainText);
+    const m = t.match(/会場名\s+(.+?)(?:\n|住所|交通案内|他の共催|著作権|参加費|日時|議題)/);
+    return m ? normalizeOneLine(m[1]) : "会場未指定";
+  };
+
+  const extractGlobalVenueFromDoc = (doc, plainText) => {
+    for (const tr of doc.querySelectorAll("tr")) {
+      const cells = [...tr.cells].map(textOf);
+      if (cells.length >= 2 && cells[0].includes("会場名")) return normalizeOneLine(cells.slice(1).join(" "));
+    }
+    return extractGlobalVenueFromText(plainText);
+  };
+
+  const extractChair = (text) => {
+    const t = normalizeOneLine(text);
+    const m = t.match(/座長[:：]\s*(.+?)(?=\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}|$)/);
+    return m ? normalizeOneLine(m[1]) : "";
+  };
+
+  const cleanSessionTitle = (text) => {
+    let t = normalizeOneLine(text);
+    const date = parseDate(t);
+    const time = parseTimeRange(t);
+    if (date) t = t.replace(date.raw, "");
+    if (time) t = t.replace(time.raw, "");
+    t = t.replace(/午前|午後/g, "");
+    t = t.replace(/座長[:：].*$/, "");
+    t = t.replace(/\[変更あり\]/g, "");
+    for (const p of extractParentheses(t)) {
+      if (looksLikeRoom(p)) t = t.replace(new RegExp(`[（(]${escapeRegExp(p)}[)）]`, "g"), "");
+    }
+    return normalizeOneLine(t) || "セッション";
+  };
+
+  const cleanTalkTitle = (text) => {
+    let t = normalizeOneLine(text);
+    const time = parseTimeRange(t);
+    t = t.replace(/^[（(]?\d+[)）]?/, "");
+    if (time) t = t.replace(time.raw, "");
+    t = t.replace(/^\s*[A-Z][A-Z0-9-]{0,15}\s+/, "");
+    t = t.replace(/\b[A-Z]{1,12}\d{4}-\d+\b/g, "");
+    t = t.replace(/\[Preview\]/gi, "").replace(/\[変更あり\]/g, "");
+    return normalizeOneLine(t);
+  };
+
+  const guessBaseUrl = (input) => {
+    const m = String(input || "").match(/https?:\/\/[^\s"'<>]+\/ken\/[^\s"'<>]*/i);
+    if (m) {
+      try {
+        const u = new URL(m[0]);
+        return `${u.protocol}//${u.host}`;
+      } catch (_) {}
+    }
+    return "https://ken.ieice.org";
+  };
+
+  const toAbsoluteUrl = (href, baseUrl) => {
+    const h = String(href || "").trim();
+    if (!h || h.startsWith("#") || /^javascript:/i.test(h)) return "";
+
+    let origin = "https://ken.ieice.org";
+    try { origin = new URL(baseUrl).origin; } catch (_) {}
+
+    // IEICE KEN の論文詳細ページを最優先で正規化する。
+    // HTML内では /ken/paper/XXXX, ../paper/XXXX, paper/XXXX など揺れる可能性がある。
+    if (/^https?:\/\/[^\s"'<>]+\/ken\/paper\//i.test(h)) return h;
+    if (/^\/ken\/paper\//i.test(h)) return origin + h;
+    if (/^(?:\.\.\/)+paper\//i.test(h)) return origin + "/ken/" + h.replace(/^(?:\.\.\/)+/i, "");
+    if (/^paper\//i.test(h)) return origin + "/ken/" + h;
+
+    try { return new URL(h, origin + "/ken/program/index.php").href; }
+    catch (_) { return h; }
+  };
+
+  const extractLinks = (el, baseUrl) => {
+    return [...el.querySelectorAll("a[href]")].map((a) => ({
+      text: normalizeOneLine(a.textContent || ""),
+      href: toAbsoluteUrl(a.getAttribute("href"), baseUrl),
+    })).filter((x) => x.href);
+  };
+
+  const isKenPaperUrl = (href) => /https?:\/\/[^\s"'<>]+\/ken\/paper\/[^\s"'<>]+/i.test(String(href || ""));
+
+  const chooseTalkLink = (links) => {
+    if (!links || !links.length) return "";
+
+    // 行内に複数リンクがある場合でも、Preview/PDF/download ではなく
+    // https://ken.ieice.org/ken/paper/XXXX の論文詳細ページを優先する。
+    const paper = links.find((l) => isKenPaperUrl(l.href));
+    if (paper) return paper.href;
+
+    // 念のため、相対URLが正規化されずに残った場合の保険。
+    const paperLike = links.find((l) => /(?:^|\/)paper\//i.test(l.href) && !/pdf|download|preview/i.test(l.href));
+    if (paperLike) return paperLike.href;
+
+    return "";
+  };
+
+  const extractRawUrls = (text, baseUrl) => {
+    return [...String(text || "").matchAll(/https?:\/\/[^\s"'<>]+/g)]
+      .map((m) => ({ text: "URL", href: toAbsoluteUrl(m[0], baseUrl) }));
+  };
+
+  const parseAsHtmlRows = (input) => {
+    const baseUrl = guessBaseUrl(input);
+    const doc = new DOMParser().parseFromString(input, "text/html");
+    const rowElements = [...doc.querySelectorAll("tr")];
+    const rows = rowElements.map((tr) => ({
+      text: textOf(tr),
+      links: extractLinks(tr, baseUrl),
+    })).filter((r) => r.text);
+    const plainText = normalize(doc.body?.innerText || doc.body?.textContent || input);
+    return { rows, plainText, globalVenue: extractGlobalVenueFromDoc(doc, plainText), baseUrl };
+  };
+
+  const parseAsTextRows = (input) => {
+    const baseUrl = guessBaseUrl(input);
+    const plainText = normalize(input);
+    const lines = plainText.split("\n").map(normalizeOneLine).filter(Boolean);
+    const rows = [];
+
+    // Combine session header blocks: date line + chair line + time line.
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (parseDate(line) && !parseTimeRange(line)) {
+        let combined = line;
+        let j = i + 1;
+        while (j < lines.length && j <= i + 4 && !parseDate(lines[j])) {
+          combined += " " + lines[j];
+          if (parseTimeRange(combined) && combined.includes("座長")) break;
+          j++;
+        }
+        if (parseTimeRange(combined) && combined.includes("座長")) {
+          rows.push({ text: combined, links: extractRawUrls(combined, baseUrl) });
+          i = j;
+          continue;
+        }
+      }
+      rows.push({ text: line, links: extractRawUrls(line, baseUrl) });
+    }
+
+    return { rows, plainText, globalVenue: extractGlobalVenueFromText(plainText), baseUrl };
+  };
+
+  const parseProgram = (input) => {
+    const looksHtml = /<\s*(html|body|table|tr|td|div|p|br)\b/i.test(input);
+    let { rows, plainText, globalVenue, baseUrl } = looksHtml ? parseAsHtmlRows(input) : parseAsTextRows(input);
+
+    // If HTML parsing yielded too few rows, fall back to text parsing.
+    if (rows.length < 5) ({ rows, plainText, globalVenue, baseUrl } = parseAsTextRows(input));
+
+    const sessions = [];
+    const breaks = [];
+    let current = null;
+    let currentDate = null;
+
+    const pushCurrent = () => {
+      if (current && current.date && current.start && current.end) sessions.push(current);
+      current = null;
+    };
+
+    for (const rowObj of rows) {
+      const rowText = normalizeOneLine(rowObj.text || rowObj);
+      const rowLinks = rowObj.links || [];
+      if (!rowText) continue;
+      const date = parseDate(rowText);
+      const time = parseTimeRange(rowText);
+      if (date) currentDate = date.label;
+
+      const isSessionHeader = date && time && includesAny(rowText, CONFIG.sessionHeaderKeywords) &&
+        !includesAny(rowText, CONFIG.breakKeywords) && !includesAny(rowText, CONFIG.discussionKeywords);
+
+      if (isSessionHeader) {
+        pushCurrent();
+        const roomFull = extractRoomFromText(rowText) || globalVenue || "会場未指定";
+        current = {
+          date: date.label,
+          title: cleanSessionTitle(rowText),
+          chair: extractChair(rowText),
+          roomFull,
+          room: shortRoomName(roomFull),
+          start: time.start,
+          end: time.end,
+          startMin: time.startMin,
+          endMin: time.endMin,
+          talks: [],
+        };
+        continue;
+      }
+
+      const isBreak = time && (includesAny(rowText, CONFIG.breakKeywords) || includesAny(rowText, CONFIG.discussionKeywords));
+      if (isBreak) {
+        const roomFull = extractRoomFromText(rowText) || current?.roomFull || globalVenue || "会場未指定";
+        breaks.push({
+          date: current?.date || currentDate || "",
+          roomFull,
+          room: shortRoomName(roomFull),
+          title: includesAny(rowText, CONFIG.discussionKeywords) ? "質疑応答" : rowText.includes("昼") ? "昼休憩" : "休憩",
+          start: time.start,
+          end: time.end,
+          startMin: time.startMin,
+          endMin: time.endMin,
+        });
+        continue;
+      }
+
+      const isTalk = current && time && /^[（(]?\d+[)）]?/.test(rowText) &&
+        !includesAny(rowText, CONFIG.breakKeywords) && !includesAny(rowText, CONFIG.discussionKeywords);
+      if (isTalk) {
+        const num = rowText.match(/^[（(]?(\d+)[)）]?/)?.[1] || "";
+        const type = rowText.match(/^[（(]?\d+[)）]?\s*([A-Z][A-Z0-9-]{0,15})\b/)?.[1] || "";
+        current.talks.push({
+          number: num,
+          type,
+          start: time.start,
+          end: time.end,
+          startMin: time.startMin,
+          endMin: time.endMin,
+          title: cleanTalkTitle(rowText),
+          link: chooseTalkLink(rowLinks),
+        });
+      }
+    }
+    pushCurrent();
+
+    return { sessions, breaks, globalVenue, rowCount: rows.length, plainText, baseUrl };
+  };
+
+  const maxParallel = (sessions) => {
+    const points = [];
+    for (const s of sessions) { points.push({t:s.startMin,d:1}); points.push({t:s.endMin,d:-1}); }
+    points.sort((a,b) => a.t - b.t || a.d - b.d);
+    let cur = 0, max = 0;
+    for (const p of points) { cur += p.d; max = Math.max(max, cur); }
+    return max;
+  };
+
+  const roomSort = (a, b) => {
+    const ma = a.match(/^([A-Z])(\d+)$/i), mb = b.match(/^([A-Z])(\d+)$/i);
+    if (ma && mb) {
+      const la = ma[1].toUpperCase(), lb = mb[1].toUpperCase();
+      if (la !== lb) return la.localeCompare(lb);
+      return Number(ma[2]) - Number(mb[2]);
+    }
+    return a.localeCompare(b, "ja");
+  };
+
+  const renderTimetable = ({ sessions, breaks, globalVenue, rowCount, baseUrl }) => {
+    outputEl.innerHTML = "";
+    if (!sessions.length) {
+      statusEl.innerHTML = `<span class="error">セッションを検出できませんでした。</span>\nHTML(simple) または TEXT の本文全体を貼り付けてください。読み取った行数: ${rowCount}`;
+      return;
+    }
+
+    sessions.forEach((s, i) => {
+      s.uid = `session-${i + 1}`;
+    });
+
+    const dates = [...new Set(sessions.map((s) => s.date))];
+    const summaryHtml = dates.map((date) => {
+      const daySessions = sessions.filter((s) => s.date === date);
+      const rooms = [...new Set(daySessions.map((s) => s.room))].sort(roomSort);
+      const minStart = Math.min(...daySessions.map((s) => s.startMin));
+      const maxEnd = Math.max(...daySessions.map((s) => s.endMin));
+      return `<div class="summary-card">${escapeHtml(date)}<strong>${maxParallel(daySessions)} 並列</strong>${rooms.length} 部屋: ${rooms.map(escapeHtml).join(", ")}<br>${daySessions.length} セッション / ${escapeHtml(minToTime(minStart))}-${escapeHtml(minToTime(maxEnd))}</div>`;
+    }).join("");
+
+    const tabsHtml = dates.map((date, i) => `<button class="tab" type="button" data-date="${escapeHtml(date)}" aria-selected="${i === 0 ? "true" : "false"}">${escapeHtml(date)}</button>`).join("");
+
+    const dayHtml = dates.map((date, dateIndex) => {
+      const daySessions = sessions.filter((s) => s.date === date).sort((a,b) => a.startMin - b.startMin || roomSort(a.room, b.room));
+      const rooms = [...new Set(daySessions.map((s) => s.room))].sort(roomSort);
+      const roomFullByShort = {};
+      for (const s of daySessions) roomFullByShort[s.room] = s.roomFull;
+      const minTime = Math.floor(Math.min(...daySessions.map((s) => s.startMin)) / 30) * 30;
+      const maxTime = Math.ceil(Math.max(...daySessions.map((s) => s.endMin)) / 30) * 30;
+      const rowsCount = Math.ceil((maxTime - minTime) / CONFIG.slotMinutes);
+      const gridCols = `86px repeat(${rooms.length}, minmax(300px, 1fr))`;
+      const gridRows = `46px repeat(${rowsCount}, ${CONFIG.rowHeightPx}px)`;
+      const roomHeaders = rooms.map((room, idx) => `<div class="room-head" style="grid-column:${idx+2}; grid-row:1;">${escapeHtml(room)}<span class="room-sub">${escapeHtml(roomFullByShort[room] || "")}</span></div>`).join("");
+      const timeLabels = [];
+      for (let t = minTime; t < maxTime; t += 30) {
+        const row = Math.floor((t - minTime) / CONFIG.slotMinutes) + 2;
+        const span = Math.max(1, Math.floor(30 / CONFIG.slotMinutes));
+        timeLabels.push(`<div class="time-label" style="grid-column:1; grid-row:${row} / span ${span};">${escapeHtml(minToTime(t))}</div>`);
+      }
+      const bgCells = rooms.map((_, roomIdx) => Array.from({length:rowsCount}, (_, rowIdx) => `<div class="bg-cell" style="grid-column:${roomIdx+2}; grid-row:${rowIdx+2};"></div>`).join("")).join("");
+      const sessionCards = daySessions.map((s, sessionIndex) => {
+        const col = rooms.indexOf(s.room) + 2;
+        const rowStart = Math.floor((s.startMin - minTime) / CONFIG.slotMinutes) + 2;
+        const rowSpan = Math.max(1, Math.ceil((s.endMin - s.startMin) / CONFIG.slotMinutes));
+        const talksHtml = s.talks.length ? `<div class="session-hint">${s.talks.length}件の発表：hoverで表示 / クリックで論文リストへ</div><div class="talks">${s.talks.map((t) => { const titleHtml = t.link ? `<a class="talk-link" href="${escapeHtml(t.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${escapeHtml(t.title)}</a>` : escapeHtml(t.title); return `<div class="talk"><div><span class="talk-time">${escapeHtml(t.start)}-${escapeHtml(t.end)}</span>${t.type ? `<span class="talk-type">${escapeHtml(t.type)}</span>` : ""}${t.number ? `<span>(${escapeHtml(t.number)})</span>` : ""}${t.link ? `<span class="paper-link-note">論文ページ↗</span>` : ""}</div><div>${titleHtml}</div></div>`; }).join("")}</div>` : `<div class="session-hint">発表情報なし</div>`;
+        return `<article class="session" id="card-${escapeHtml(s.uid)}" data-session-id="${escapeHtml(`${date}-${sessionIndex}`)}" data-paper-target="paper-${escapeHtml(s.uid)}" role="button" tabindex="0" style="grid-column:${col}; grid-row:${rowStart} / span ${rowSpan};" title="${escapeHtml(`${s.start}-${s.end} ${s.title} / ${s.talks.length}件の発表。クリックで下部の論文リストへ移動`)}"><div class="session-time">${escapeHtml(s.start)}-${escapeHtml(s.end)}</div><div class="session-title">${escapeHtml(s.title)}</div>${s.chair ? `<div class="chair">座長: ${escapeHtml(s.chair)}</div>` : ""}${talksHtml}</article>`;
+      }).join("");
+      const dayBreaks = breaks.filter((b) => (!b.date || b.date === date) && b.startMin >= minTime && b.endMin <= maxTime);
+      const breakCards = dayBreaks.map((b) => {
+        const targetRooms = rooms.includes(b.room) ? [b.room] : rooms;
+        const rowStart = Math.floor((b.startMin - minTime) / CONFIG.slotMinutes) + 2;
+        const rowSpan = Math.max(1, Math.ceil((b.endMin - b.startMin) / CONFIG.slotMinutes));
+        return targetRooms.map((room) => `<div class="break" style="grid-column:${rooms.indexOf(room)+2}; grid-row:${rowStart} / span ${rowSpan};">${escapeHtml(b.start)}-${escapeHtml(b.end)} ${escapeHtml(b.title)}</div>`).join("");
+      }).join("");
+      return `<div class="day ${dateIndex === 0 ? "active" : ""}" data-date="${escapeHtml(date)}"><div class="scroll"><div class="grid" style="grid-template-columns:${gridCols}; grid-template-rows:${gridRows};"><div class="time-head" style="grid-column:1; grid-row:1;">時刻</div>${roomHeaders}${timeLabels.join("")}${bgCells}${breakCards}${sessionCards}</div></div></div>`;
+    }).join("");
+
+    const paperListHtml = `
+      <section class="paper-list" aria-label="セッション別論文リスト">
+        <h2>セッション別 論文リスト</h2>
+        <p class="paper-meta">上のタイムテーブルのセッション枠をクリックすると、対応するセッションの論文リストへ移動します。HTMLから /ken/paper/... の論文詳細ページを検出できた論文は、項目クリックでIEICEの当該論文ページを新しいタブで開きます。</p>
+        ${dates.map((date) => {
+          const daySessions = sessions
+            .filter((s) => s.date === date)
+            .sort((a,b) => a.startMin - b.startMin || roomSort(a.room, b.room));
+          return `
+            <section class="paper-date">
+              <h3>${escapeHtml(date)}</h3>
+              ${daySessions.map((s) => `
+                <article class="paper-session" id="paper-${escapeHtml(s.uid)}">
+                  <div class="paper-session-head">
+                    <span class="paper-session-time">${escapeHtml(s.start)}-${escapeHtml(s.end)}</span>
+                    <span class="paper-session-room">${escapeHtml(s.room)}${s.roomFull && s.roomFull !== s.room ? ` / ${escapeHtml(s.roomFull)}` : ""}</span>
+                    <span class="paper-session-title">${escapeHtml(s.title)}</span>
+                  </div>
+                  ${s.chair ? `<div class="paper-session-chair">座長: ${escapeHtml(s.chair)}</div>` : ""}
+                  <div class="paper-items">
+                    ${s.talks.length ? s.talks.map((t) => {
+                      const inner = `<div><span class="paper-time">${escapeHtml(t.start)}-${escapeHtml(t.end)}</span>${t.type ? `<span class="paper-type">${escapeHtml(t.type)}</span>` : ""}${t.number ? `<div>(${escapeHtml(t.number)})</div>` : ""}${t.link ? `<div class="paper-link-note">論文ページ↗</div>` : `<div class="paper-no-link">リンク未検出</div>`}</div><div class="paper-title">${escapeHtml(t.title || "タイトル未検出")}</div>`;
+                      return t.link
+                        ? `<a class="paper-item" href="${escapeHtml(t.link)}" target="_blank" rel="noopener noreferrer">${inner}</a>`
+                        : `<div class="paper-item">${inner}</div>`;
+                    }).join("") : `<div class="paper-item"><div class="paper-time">—</div><div class="paper-title">発表情報を検出できませんでした。</div></div>`}
+                  </div>
+                  <a class="paper-back" href="#card-${escapeHtml(s.uid)}">↑ タイムテーブル上のセッションへ戻る</a>
+                </article>
+              `).join("")}
+            </section>
+          `;
+        }).join("")}
+      </section>
+    `;
+
+    statusEl.textContent = `検出成功: ${sessions.length} セッション、${sessions.reduce((a,s)=>a+s.talks.length,0)} 発表、リンク検出 ${sessions.reduce((a,s)=>a+s.talks.filter(t=>t.link).length,0)} 件、${breaks.length} 休憩/質疑応答行。読み取った行数: ${rowCount}`;
+    outputEl.innerHTML = `<div class="summary">${summaryHtml}</div><div class="tabs">${tabsHtml}</div><div class="toolbar"><button type="button" data-action="open-all">表示中の日付の発表を開く</button><button type="button" data-action="close-all">全発表を閉じる</button></div>${dayHtml}${paperListHtml}<details class="raw-debug"><summary>検出したセッション一覧</summary><pre>${escapeHtml(JSON.stringify(sessions.map(s => ({date:s.date, room:s.room, roomFull:s.roomFull, start:s.start, end:s.end, title:s.title, talks:s.talks.length, links:s.talks.filter(t=>t.link).length})), null, 2))}</pre></details>`;
+
+    outputEl.querySelectorAll(".tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const date = btn.dataset.date;
+        outputEl.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", String(b === btn)));
+        outputEl.querySelectorAll(".day").forEach((day) => day.classList.toggle("active", day.dataset.date === date));
+      });
+    });
+    const jumpToPaper = (card) => {
+      const targetId = card.dataset.paperTarget;
+      const target = targetId ? document.getElementById(targetId) : null;
+      if (!target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      outputEl.querySelectorAll(".paper-session.flash").forEach((el) => el.classList.remove("flash"));
+      target.classList.add("flash");
+      window.setTimeout(() => target.classList.remove("flash"), 1600);
+    };
+    outputEl.querySelectorAll(".session").forEach((card) => {
+      card.addEventListener("click", (e) => { e.stopPropagation(); jumpToPaper(card); });
+      card.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); jumpToPaper(card); }
+      });
+    });
+    outputEl.querySelector('[data-action="open-all"]')?.addEventListener("click", () => outputEl.querySelectorAll(".day.active .session").forEach((card) => card.classList.add("open")));
+    outputEl.querySelector('[data-action="close-all"]')?.addEventListener("click", () => outputEl.querySelectorAll(".session.open").forEach((card) => card.classList.remove("open")));
+  };
+
+
+  const renderFromText = (text) => {
+    try { renderTimetable(parseProgram(text)); }
+    catch (e) { console.error(e); statusEl.innerHTML = `<span class="error">処理中にエラーが発生しました。</span>
+${escapeHtml(e.message || String(e))}`; outputEl.innerHTML = ""; }
+  };
+
+  $("fetchBtn").addEventListener("click", async () => {
+    const target = programUrlEl.value.trim();
+    if (!target) { statusEl.innerHTML = '<span class="error">IEICE KEN のURLを入力してください。</span>'; outputEl.innerHTML = ""; return; }
+    let parsed;
+    try { parsed = new URL(target); }
+    catch { statusEl.innerHTML = '<span class="error">URLの形式が正しくありません。</span>'; outputEl.innerHTML = ""; return; }
+    if (parsed.hostname !== "ken.ieice.org" || !parsed.pathname.startsWith("/ken/program/")) {
+      statusEl.innerHTML = '<span class="error">取得できるのは https://ken.ieice.org/ken/program/... のURLだけです。</span>';
+      outputEl.innerHTML = "";
+      return;
+    }
+    statusEl.textContent = "IEICE KEN ページを取得中です...";
+    outputEl.innerHTML = "";
+    try {
+      const response = await fetch(`/api/fetch-ieice?url=${encodeURIComponent(parsed.toString())}`);
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload || !payload.html) {
+        throw new Error(payload?.error || `取得に失敗しました: HTTP ${response.status}`);
+      }
+      sourceEl.value = payload.html;
+      statusEl.textContent = `取得成功: ${payload.url || parsed.toString()}
+レンダリング中です...`;
+      renderFromText(payload.html);
+    } catch (e) {
+      console.error(e);
+      statusEl.innerHTML = `<span class="error">URL取得に失敗しました。</span>
+${escapeHtml(e.message || String(e))}
+
+代替手段: IEICE KEN の [HTML(simple)] または [TEXT] を開き、下の貼り付け欄にコピーしてください。`;
+      outputEl.innerHTML = "";
+    }
+  });
+
+  $("renderBtn").addEventListener("click", () => {
+    const input = sourceEl.value.trim();
+    if (!input) { statusEl.innerHTML = '<span class="error">貼り付け内容が空です。</span>'; outputEl.innerHTML = ""; return; }
+    try { renderTimetable(parseProgram(input)); }
+    catch (e) { console.error(e); statusEl.innerHTML = `<span class="error">処理中にエラーが発生しました。</span>\n${escapeHtml(e.message || String(e))}`; outputEl.innerHTML = ""; }
+  });
+
+  $("clearBtn").addEventListener("click", () => { sourceEl.value = ""; programUrlEl.value = ""; outputEl.innerHTML = ""; statusEl.textContent = "未レンダリングです。"; });
+
+  $("sampleBtn").addEventListener("click", () => {
+    sourceEl.value = `会場名 北海道大学 情報科学研究院棟\n2月19日(木) 午前 ITE-ME1(情報科学研究院棟A11)\n座長: 小川 貴弘（北大）\n10:00 - 11:00\n(1) ITE-ME 10:00-10:15 ARにおける半影表現のための面光源パラメータ推定 ○吉田拓翔・髙橋裕樹（電通大）\n(2) ITE-ME 10:15-10:30 Exploring Controlled Realism in 3D Anime Avatar Generation ○Fernanda Miyuki Yamada・Hiroki Takahashi（UEC）\n11:00-11:15 休憩（A11） （15分）\n2月19日(木) 午前 IEICE-IE1(情報科学研究院棟A13)\n座長: 熊野 創一郎（東大）\n10:00 - 11:00\n(37) IE 10:00-10:15 Multistage Rebalancing Adaptive Multimodal Transformer for Personality Trait Assessment ITS2025-40 IE2025-55 [Preview] ○Shengzhou Yi（UTokyo）・Toshihiko Yamasaki（UTokyo）\n(38) IE 10:15-10:30 Neural Tangent Kernelに基づくNeural Networkの最適な幅の決定理論 ITS2025-41 IE2025-56 [Preview] ○砂田達巳・山崎俊彦（東大）`;
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!outputEl.contains(event.target)) outputEl.querySelectorAll(".session.open").forEach((card) => card.classList.remove("open"));
+  });
+})();
+</script>
+</body>
+</html>
