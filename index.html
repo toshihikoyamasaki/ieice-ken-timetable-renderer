@@ -602,7 +602,7 @@ ${escapeHtml(e.message || String(e))}`; outputEl.innerHTML = ""; }
     statusEl.textContent = "IEICE KEN ページを取得中です...";
     outputEl.innerHTML = "";
     try {
-      const response = await fetch(`/functions/api/fetch-ieice?url=${encodeURIComponent(parsed.toString())}`);
+      const response = await fetch(`/api/fetch-ieice?url=${encodeURIComponent(parsed.toString())}`);
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload || !payload.html) {
         throw new Error(payload?.error || `取得に失敗しました: HTTP ${response.status}`);
