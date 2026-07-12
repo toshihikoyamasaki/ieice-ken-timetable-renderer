@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>IEICE KEN Timetable Renderer — Paste Only v4</title>
+<title>IEICE KEN Timetable Renderer — Paste Only v5</title>
 <style>
   :root {
     --bg:#f8fafc; --panel:#ffffff; --line:#d1d5db; --muted:#64748b; --text:#111827;
@@ -82,15 +82,37 @@
   .paper-back:hover { text-decoration:underline; }
   @media (max-width: 720px) { .paper-item { grid-template-columns:1fr; } }
 
+
+
+  .pdf-export { display:none; }
+  .pdf-export-note { color:#64748b; font-size:12px; margin:0 0 4mm; }
+  .pdf-day { background:#fff; color:#111827; }
+  .pdf-title-row { display:flex; justify-content:space-between; gap:8mm; align-items:flex-end; border-bottom:1px solid #111827; padding-bottom:2.5mm; margin-bottom:3mm; }
+  .pdf-title-row h1 { margin:0; font-size:16pt; line-height:1.2; }
+  .pdf-title-row .pdf-meta { font-size:9pt; color:#334155; text-align:right; line-height:1.35; }
+  .pdf-grid { display:grid; position:relative; border:1px solid #94a3b8; background:#fff; height:165mm; overflow:hidden; }
+  .pdf-time-head, .pdf-room-head { background:#e2e8f0; border-right:1px solid #cbd5e1; border-bottom:1px solid #94a3b8; font-weight:700; font-size:8pt; padding:1.6mm; text-align:center; overflow:hidden; }
+  .pdf-time-cell { border-right:1px solid #cbd5e1; border-bottom:1px solid #e2e8f0; font-size:7pt; color:#475569; padding:1mm; text-align:right; overflow:hidden; }
+  .pdf-bg-cell { border-right:1px solid #e2e8f0; border-bottom:1px solid #edf2f7; min-height:0; }
+  .pdf-session { margin:.7mm; border:1px solid #60a5fa; background:#eff6ff; border-radius:2mm; padding:1.4mm; overflow:hidden; font-size:7pt; line-height:1.25; }
+  .pdf-session-time { font-weight:800; color:#1d4ed8; margin-bottom:.6mm; }
+  .pdf-session-title { font-weight:800; margin-bottom:.5mm; }
+  .pdf-session-chair { color:#475569; margin-bottom:.5mm; }
+  .pdf-session-talk { color:#1f2937; margin-top:.3mm; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pdf-break { margin:.7mm; border:1px dashed #94a3b8; background:#f8fafc; border-radius:1.5mm; padding:1mm; font-size:7pt; color:#64748b; text-align:center; overflow:hidden; }
+
   .raw-debug { margin-top:12px; font-size:12px; color:#475569; }
   details { margin-top:10px; }
   summary { cursor:pointer; color:#334155; }
+  @page { size: A4 landscape; margin: 8mm; }
   @media print {
-    header, .panel.input-panel, .toolbar { display:none !important; }
     body { background:#fff; }
-    main { max-width:none; padding:0; }
-    .panel { border:none; }
-    .scroll { overflow:visible; }
+    body > header, main > .input-panel, #status, #output > :not(.pdf-export) { display:none !important; }
+    main { max-width:none; padding:0; margin:0; }
+    .panel { border:none; padding:0; margin:0; }
+    .pdf-export { display:block !important; }
+    .pdf-day { page-break-after: always; break-after: page; width:100%; height:190mm; overflow:hidden; }
+    .pdf-day:last-child { page-break-after:auto; break-after:auto; }
   }
 </style>
 </head>
@@ -135,6 +157,7 @@
   const sourceEl = $("source");
   const statusEl = $("status");
   const outputEl = $("output");
+  let lastParsedProgram = null;
 
   const normalize = (s) => String(s || "")
     .replace(/\u00a0/g, " ")
@@ -450,6 +473,48 @@
     return a.localeCompare(b, "ja");
   };
 
+
+  const createPdfExportHtml = (sessions, breaks, dates, globalVenue) => {
+    return `<section class="pdf-export" aria-label="PDF出力用プログラム">${dates.map((date) => {
+      const daySessions = sessions
+        .filter((s) => s.date === date)
+        .sort((a, b) => a.startMin - b.startMin || roomSort(a.room, b.room));
+      const rooms = [...new Set(daySessions.map((s) => s.room))].sort(roomSort);
+      const roomFullByShort = {};
+      for (const s of daySessions) roomFullByShort[s.room] = s.roomFull;
+      const minTime = Math.floor(Math.min(...daySessions.map((s) => s.startMin)) / 30) * 30;
+      const maxTime = Math.ceil(Math.max(...daySessions.map((s) => s.endMin)) / 30) * 30;
+      const slot = CONFIG.slotMinutes;
+      const rowsCount = Math.ceil((maxTime - minTime) / slot);
+      const gridCols = `18mm repeat(${rooms.length}, minmax(0, 1fr))`;
+      const gridRows = `8mm repeat(${rowsCount}, minmax(0, 1fr))`;
+      const roomHeaders = rooms.map((room, idx) => `<div class="pdf-room-head" style="grid-column:${idx+2}; grid-row:1;">${escapeHtml(room)}${roomFullByShort[room] && roomFullByShort[room] !== room ? `<br><span>${escapeHtml(roomFullByShort[room])}</span>` : ""}</div>`).join("");
+      const timeLabels = [];
+      for (let t = minTime; t < maxTime; t += 30) {
+        const row = Math.floor((t - minTime) / slot) + 2;
+        const span = Math.max(1, Math.floor(30 / slot));
+        timeLabels.push(`<div class="pdf-time-cell" style="grid-column:1; grid-row:${row} / span ${span};">${escapeHtml(minToTime(t))}</div>`);
+      }
+      const bgCells = rooms.map((_, roomIdx) => Array.from({ length: rowsCount }, (_, rowIdx) => `<div class="pdf-bg-cell" style="grid-column:${roomIdx+2}; grid-row:${rowIdx+2};"></div>`).join("")).join("");
+      const sessionCards = daySessions.map((s) => {
+        const col = rooms.indexOf(s.room) + 2;
+        const rowStart = Math.floor((s.startMin - minTime) / slot) + 2;
+        const rowSpan = Math.max(1, Math.ceil((s.endMin - s.startMin) / slot));
+        const talkLines = s.talks.slice(0, 4).map((t) => `<div class="pdf-session-talk">${escapeHtml(t.start)}-${escapeHtml(t.end)} ${t.number ? `(${escapeHtml(t.number)}) ` : ""}${escapeHtml(t.title || "")}</div>`).join("");
+        const more = s.talks.length > 4 ? `<div class="pdf-session-talk">…ほか ${s.talks.length - 4} 件</div>` : "";
+        return `<article class="pdf-session" style="grid-column:${col}; grid-row:${rowStart} / span ${rowSpan};"><div class="pdf-session-time">${escapeHtml(s.start)}-${escapeHtml(s.end)}</div><div class="pdf-session-title">${escapeHtml(s.title)}</div>${s.chair ? `<div class="pdf-session-chair">座長: ${escapeHtml(s.chair)}</div>` : ""}${talkLines}${more}</article>`;
+      }).join("");
+      const dayBreaks = breaks.filter((b) => (!b.date || b.date === date) && b.startMin >= minTime && b.endMin <= maxTime);
+      const breakCards = dayBreaks.map((b) => {
+        const targetRooms = rooms.includes(b.room) ? [b.room] : rooms;
+        const rowStart = Math.floor((b.startMin - minTime) / slot) + 2;
+        const rowSpan = Math.max(1, Math.ceil((b.endMin - b.startMin) / slot));
+        return targetRooms.map((room) => `<div class="pdf-break" style="grid-column:${rooms.indexOf(room)+2}; grid-row:${rowStart} / span ${rowSpan};">${escapeHtml(b.start)}-${escapeHtml(b.end)} ${escapeHtml(b.title)}</div>`).join("");
+      }).join("");
+      return `<section class="pdf-day"><div class="pdf-title-row"><h1>${escapeHtml(date)} プログラム</h1><div class="pdf-meta">${rooms.length} 部屋 / ${daySessions.length} セッション / ${daySessions.reduce((a,s)=>a+s.talks.length,0)} 発表<br>${escapeHtml(minToTime(minTime))}-${escapeHtml(minToTime(maxTime))}${globalVenue ? `<br>${escapeHtml(globalVenue)}` : ""}</div></div><div class="pdf-grid" style="grid-template-columns:${gridCols}; grid-template-rows:${gridRows};"><div class="pdf-time-head" style="grid-column:1; grid-row:1;">時刻</div>${roomHeaders}${timeLabels.join("")}${bgCells}${breakCards}${sessionCards}</div><p class="pdf-export-note">IEICE KEN Timetable Rendererで生成。1日分を1ページに収めるため、長い発表タイトルは省略表示される場合があります。</p></section>`;
+    }).join("")}</section>`;
+  };
+
   const renderTimetable = ({ sessions, breaks, globalVenue, rowCount, baseUrl }) => {
     outputEl.innerHTML = "";
     if (!sessions.length) {
@@ -543,8 +608,9 @@
       </section>
     `;
 
+    const pdfExportHtml = createPdfExportHtml(sessions, breaks, dates, globalVenue);
     statusEl.textContent = `検出成功: ${sessions.length} セッション、${sessions.reduce((a,s)=>a+s.talks.length,0)} 発表、リンク検出 ${sessions.reduce((a,s)=>a+s.talks.filter(t=>t.link).length,0)} 件、${breaks.length} 休憩/質疑応答行。読み取った行数: ${rowCount}`;
-    outputEl.innerHTML = `<div class="summary">${summaryHtml}</div><div class="tabs">${tabsHtml}</div><div class="toolbar"><button type="button" data-action="open-all">表示中の日付の発表を開く</button><button type="button" data-action="close-all">全発表を閉じる</button></div>${dayHtml}${paperListHtml}<details class="raw-debug"><summary>検出したセッション一覧</summary><pre>${escapeHtml(JSON.stringify(sessions.map(s => ({date:s.date, room:s.room, roomFull:s.roomFull, start:s.start, end:s.end, title:s.title, talks:s.talks.length, links:s.talks.filter(t=>t.link).length})), null, 2))}</pre></details>`;
+    outputEl.innerHTML = `<div class="summary">${summaryHtml}</div><div class="tabs">${tabsHtml}</div><div class="toolbar"><button type="button" data-action="open-all">表示中の日付の発表を開く</button><button type="button" data-action="close-all">全発表を閉じる</button><button type="button" data-action="print-pdf">PDF出力（1日1ページ）</button></div>${dayHtml}${paperListHtml}${pdfExportHtml}<details class="raw-debug"><summary>検出したセッション一覧</summary><pre>${escapeHtml(JSON.stringify(sessions.map(s => ({date:s.date, room:s.room, roomFull:s.roomFull, start:s.start, end:s.end, title:s.title, talks:s.talks.length, links:s.talks.filter(t=>t.link).length})), null, 2))}</pre></details>`;
 
     outputEl.querySelectorAll(".tab").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -570,12 +636,15 @@
     });
     outputEl.querySelector('[data-action="open-all"]')?.addEventListener("click", () => outputEl.querySelectorAll(".day.active .session").forEach((card) => card.classList.add("open")));
     outputEl.querySelector('[data-action="close-all"]')?.addEventListener("click", () => outputEl.querySelectorAll(".session.open").forEach((card) => card.classList.remove("open")));
+    outputEl.querySelector('[data-action="print-pdf"]')?.addEventListener("click", () => {
+      window.print();
+    });
   };
 
   $("renderBtn").addEventListener("click", () => {
     const input = sourceEl.value.trim();
     if (!input) { statusEl.innerHTML = '<span class="error">貼り付け内容が空です。</span>'; outputEl.innerHTML = ""; return; }
-    try { renderTimetable(parseProgram(input)); }
+    try { lastParsedProgram = parseProgram(input); renderTimetable(lastParsedProgram); }
     catch (e) { console.error(e); statusEl.innerHTML = `<span class="error">処理中にエラーが発生しました。</span>\n${escapeHtml(e.message || String(e))}`; outputEl.innerHTML = ""; }
   });
 
